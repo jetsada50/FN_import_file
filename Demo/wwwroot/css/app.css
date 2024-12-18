@@ -1,0 +1,8 @@
+.border {}
+
+.border-radius {}
+
+.border-radius__12 {
+    border: 1px solid ;
+    border-radius: 12px !important;
+}

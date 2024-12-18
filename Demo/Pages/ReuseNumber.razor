@@ -1,0 +1,12 @@
+﻿@page "/reuse-number"
+
+@inherits ReuseNumberBase
+
+<div class="d-flex justify-end gap-2">
+    <ImportFile />
+    @* <ImportFile OnUploadSuccess="OnUpload" /> *@
+    @* <ExportFile /> *@
+    @* <Ex OnColumnsProcessed="SetColumns" OnDataProcessed="SetData"  /> *@
+</div>
+
+<CustomDataGrid Columns="DataColumns" Rows="DataRows" />

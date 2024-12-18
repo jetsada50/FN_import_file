@@ -1,0 +1,67 @@
+﻿@* @page "/import" *@
+
+@* @inherits ImportFileBase *@
+
+@* <MudFileUpload T="IBrowserFile" FilesChanged="UploadFile"> *@
+@*     <ActivatorContent> *@
+@*         <MudButton Variant="Variant.Filled" Color="Color.Primary"> *@
+@*             Import *@
+@*         </MudButton> *@
+@*     </ActivatorContent> *@
+@* </MudFileUpload> *@
+@* <MudText Typo="Typo.subtitle1">@ErrorMessage</MudText> *@
+
+
+@page "/upload"
+@inject FileUploadService UploadService
+@using MudBlazor
+
+<MudFileUpload T="IBrowserFile" Accept=".xlsx" FilesChanged="HandleFileUpload">
+    <ActivatorContent>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary">
+            Import File
+        </MudButton>
+    </ActivatorContent>
+</MudFileUpload>
+
+@if (Errors?.Count > 0)
+{
+    <MudPaper Class="pa-4">
+        <MudAlert Severity="Severity.Error" Dense="true">
+            Validation Errors:
+        </MudAlert>
+        <ul>
+            @foreach (var error in Errors)
+            {
+                <li>@error</li>
+            }
+        </ul>
+    </MudPaper>
+}
+else if (!string.IsNullOrEmpty(Message))
+{
+    <MudAlert Severity="Severity.Success" Dense="true">
+        @Message
+    </MudAlert>
+}
+
+@code {
+    private List<string> Errors;
+    private string Message;
+
+    private async Task HandleFileUpload(IBrowserFile file)
+    {
+        var (success, resultMessage) = await UploadService.ValidateAndUploadFileAsync(file);
+
+        if (success)
+        {
+            Message = resultMessage;
+            Errors = null;
+        }
+        else
+        {
+            Errors = resultMessage.Split("\n").ToList();
+            Message = null;
+        }
+    }
+}

@@ -1,0 +1,136 @@
+﻿@page "/file-upload"
+@using ClosedXML.Excel
+@inject IJSRuntime JSRuntime
+
+<h3>Upload File</h3>
+
+<InputFile OnChange="HandleFileUpload" />
+
+@if (!string.IsNullOrEmpty(ErrorMessage))
+{
+    <p style="color: red;">@ErrorMessage</p>
+}
+@if (DataColumns != null && DataColumns.Count > 0)
+{
+    <table border="1">
+        <thead>
+            <tr>
+                @foreach (var column in DataColumns)
+                {
+                    <th>@column</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in DataRows)
+            {
+                <tr>
+                    @foreach (var value in row)
+                    {
+                        <td>@value</td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private string? ErrorMessage;
+    private List<string> DataColumns = new();
+    private List<List<string>> DataRows = new();
+
+    [Parameter] public EventCallback<List<List<string>>> OnDataProcessed { get; set; }
+    [Parameter] public EventCallback<List<string>> OnColumnsProcessed { get; set; }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        ErrorMessage = string.Empty;
+        var file = e.File;
+        if (file == null)
+        {
+            ErrorMessage = "Please select a file.";
+            return;
+        }
+
+        try
+        {
+            using var memoryStream = new MemoryStream();
+            await file.OpenReadStream().CopyToAsync(memoryStream);
+            memoryStream.Position = 0;
+
+            List<string> columns = new();
+            List<List<string>> rows = new();
+
+            if (file.ContentType.Contains("excel") || file.Name.EndsWith(".xlsx"))
+            {
+                ReadExcelFile(memoryStream, out columns, out rows);
+            }
+            else if (file.Name.EndsWith(".csv"))
+            {
+                ReadCsvFile(memoryStream, out columns, out rows);
+            }
+            else
+            {
+                ErrorMessage = "Unsupported file format.";
+            }
+
+            await OnColumnsProcessed.InvokeAsync(columns);
+            await OnDataProcessed.InvokeAsync(rows);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Error reading file: {ex.Message}";
+        }
+    }
+
+    private void ReadExcelFile(Stream stream, out List<string> columns, out List<List<string>> rows)
+    {
+        using var workbook = new XLWorkbook(stream);
+        var worksheet = workbook.Worksheets.First();
+
+        columns = worksheet.Row(1).CellsUsed().Select(c => c.GetString()).ToList();
+        rows = new List<List<string>>();
+
+        foreach (var row in worksheet.RowsUsed().Skip(1))
+        {
+            var rowData = new List<string>();
+            for (int colIndex = 1; colIndex <= columns.Count; colIndex++)
+            {
+                var cell = row.Cell(colIndex);
+                var cellValue = string.IsNullOrEmpty(cell.GetString()) ? "X" : cell.GetString();
+                rowData.Add(cellValue);
+            }
+
+            rows.Add(rowData);
+        }
+    }
+
+    private void ReadCsvFile(Stream stream, out List<string> columns, out List<List<string>> rows)
+    {
+        using var reader = new StreamReader(stream);
+        string? line;
+        bool isHeader = true;
+
+        columns = new List<string>();
+        rows = new List<List<string>>();
+
+        while ((line = reader.ReadLine()) != null)
+        {
+            var values = line.Split(',').ToList();
+
+            if (isHeader)
+            {
+                columns = values;
+                isHeader = false;
+            }
+            else
+            {
+                while (values.Count < columns.Count)
+                    values.Add("X");
+
+                rows.Add(values);
+            }
+        }
+    }
+}

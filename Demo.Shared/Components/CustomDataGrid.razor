@@ -1,0 +1,27 @@
+﻿@inherits CustomDataGridBase
+
+
+@if (Columns != null && Rows != null)
+{
+    <MudTable Items="FileDocs" Loading="isLoading">
+        <HeaderContent>
+            <MudTh>Prefix</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Surname</MudTh>
+            <MudTh>Department</MudTh>
+            <MudTh>Affiliation</MudTh>
+            <MudTh>Phone</MudTh>
+            <MudTh>Status</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Prefix</MudTd>
+            <MudTd>@context.Name</MudTd>
+            <MudTd>@context.Surname</MudTd>
+            <MudTd>@context.Department</MudTd>
+            <MudTd>@context.Affiliation</MudTd>
+            <MudTd>@context.PhoneNumber</MudTd>
+            <MudTd>@context.Status</MudTd>
+        </RowTemplate>
+    </MudTable>
+
+}
