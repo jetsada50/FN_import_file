@@ -28,6 +28,7 @@ public class FileUploadService
         var stopwatch = Stopwatch.StartNew();
         var validationStopwatch = new Stopwatch();
         var uploadStopwatch = new Stopwatch();
+        var readFileStopwatch = new Stopwatch();
 
         var data = new List<FileDocModel>();
         var errors = new List<ErrorValidateModel>();
@@ -42,17 +43,16 @@ public class FileUploadService
             await file.OpenReadStream(10 * 1024 * 1024).CopyToAsync(stream);
             stream.Position = 0;
 
+            readFileStopwatch.Start();
             // เปิดไฟล์ Excel
             using var document = SpreadsheetDocument.Open(stream, false);
             var sharedStringTable = document.WorkbookPart.SharedStringTablePart?.SharedStringTable;
 
             var sheetData = document.WorkbookPart.WorksheetParts.First().Worksheet.Elements<SheetData>().First();
 
-            //return (false, "Test");
-
             var rows = sheetData.Elements<Row>().Skip(1).ToList();
 
-            
+            readFileStopwatch.Stop();
 
             var regex = new Regex(@"^(?:\d{3}|\d{4}|0[689]\d{8}|(?:\+66|0066)?[689]\d{8}|\+?\d{9,15})$");
 
@@ -101,6 +101,7 @@ public class FileUploadService
             {
                 stopwatch.Stop();
                 var errorMessages = string.Join("\n", errors.Select(e => $"Row {e.Row}: {e.Message}"));
+                Console.WriteLine($"Read file in {readFileStopwatch.ElapsedMilliseconds} ms. - File validated in {validationStopwatch.ElapsedMilliseconds} ms");
                 return (false, $"Validation failed:\n{errorMessages}");
             }
 
@@ -117,7 +118,7 @@ public class FileUploadService
             }
 
             stopwatch.Stop();
-            return (true, $"File validated in {validationStopwatch.ElapsedMilliseconds} ms and uploaded in {uploadStopwatch.ElapsedMilliseconds} ms.");
+            return (true, $"Read file in {readFileStopwatch.ElapsedMilliseconds} ms. - File validated in {validationStopwatch.ElapsedMilliseconds} ms and uploaded in {uploadStopwatch.ElapsedMilliseconds} ms.");
         }
         catch (Exception ex)
         {
