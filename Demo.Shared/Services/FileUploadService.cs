@@ -8,6 +8,7 @@ using System.Data;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 using System.Text.RegularExpressions;
 using System.IO;
+using DocumentFormat.OpenXml;
 
 public class FileUploadService
 {
@@ -36,66 +37,128 @@ public class FileUploadService
         if (!ValidateFileType(file.Name))
             return (false, "Invalid file type. Only .xlsx is supported.");
 
-        try
+        using (var stream = new MemoryStream())
         {
-            // อ่านไฟล์จาก IBrowserFile เป็น MemoryStream
-            using var stream = new MemoryStream();
             await file.OpenReadStream(10 * 1024 * 1024).CopyToAsync(stream);
-            stream.Position = 0;
-
-            readFileStopwatch.Start();
-            // เปิดไฟล์ Excel
-            using var document = SpreadsheetDocument.Open(stream, false);
-            var sharedStringTable = document.WorkbookPart.SharedStringTablePart?.SharedStringTable;
-
-            var sheetData = document.WorkbookPart.WorksheetParts.First().Worksheet.Elements<SheetData>().First();
-
-            var rows = sheetData.Elements<Row>().Skip(1).ToList();
-
-            readFileStopwatch.Stop();
-
-            var regex = new Regex(@"^(?:\d{3}|\d{4}|0[689]\d{8}|(?:\+66|0066)?[689]\d{8}|\+?\d{9,15})$");
-
-            // เริ่ม Validation Timer
-            validationStopwatch.Start();
-
-            data = rows.AsParallel().Select(row =>
+            using (var spreadsheetDocument = SpreadsheetDocument.Open(stream, false))
             {
-                var cellDictionary = row.Elements<Cell>()
-                                        .ToDictionary(c => GetColumnName(c.CellReference), c => c);
+                readFileStopwatch.Start();
 
-                var result = new FileDocModel
+                WorkbookPart workbookPart = spreadsheetDocument.WorkbookPart;
+
+                Sheet sheet = workbookPart.Workbook.Descendants<Sheet>().FirstOrDefault();
+
+                WorksheetPart worksheetPart = (WorksheetPart)(spreadsheetDocument.WorkbookPart.GetPartById(sheet.Id));
+
+                var sharedStringTable = workbookPart.SharedStringTablePart?.SharedStringTable;
+
+                readFileStopwatch.Stop();
+
+                validationStopwatch.Start();
+                using (OpenXmlReader reader = OpenXmlReader.Create(worksheetPart))
                 {
-                    Prefix = GetCellValue(cellDictionary, "A", sharedStringTable),
-                    Name = GetCellValue(cellDictionary, "B", sharedStringTable),
-                    Surname = GetCellValue(cellDictionary, "C", sharedStringTable),
-                    Department = GetCellValue(cellDictionary, "D", sharedStringTable),
-                    Affiliation = GetCellValue(cellDictionary, "E", sharedStringTable),
-                    PhoneNumber = GetCellValue(cellDictionary, "F", sharedStringTable),
-                    Status = GetCellValue(cellDictionary, "G", sharedStringTable)
-                };
+                    bool isFirstRow = true;
+                    var regexPrefix = new Regex(@"^(นาย|นาง|นางสาว|Mr\.|Mrs\.|Miss)$");
+                    var regexMoblie = new Regex(@"^(?:\d{3}|\d{4}|0[689]\d{8}|0[689]\d{1}-\d{4}-\d{4}|(?:\+66|0066)?[689]\d{8}|\+?\d{9,15})$");
 
-                var rowIndex = row.RowIndex?.Value.ToString() ?? "Unknown";
 
-                // Validation
-                if (string.IsNullOrWhiteSpace(result.Prefix))
-                    errors.Add(new ErrorValidateModel { Row = rowIndex, Message = "Prefix is required" });
-                if (string.IsNullOrWhiteSpace(result.Name))
-                    errors.Add(new ErrorValidateModel { Row = rowIndex, Message = "Name is required" });
-                if (string.IsNullOrWhiteSpace(result.Surname))
-                    errors.Add(new ErrorValidateModel { Row = rowIndex, Message = "Surname is required" });
-                if (string.IsNullOrWhiteSpace(result.Department))
-                    errors.Add(new ErrorValidateModel { Row = rowIndex, Message = "Department is required" });
-                if (string.IsNullOrWhiteSpace(result.Affiliation))
-                    errors.Add(new ErrorValidateModel { Row = rowIndex, Message = "Affiliation is required" });
-                if (!regex.IsMatch(result.PhoneNumber))
-                    errors.Add(new ErrorValidateModel { Row = rowIndex, Message = $"Invalid phone number: {result.PhoneNumber}" });
-                if (string.IsNullOrWhiteSpace(result.Status))
-                    errors.Add(new ErrorValidateModel { Row = rowIndex, Message = "Status is required" });
+                    while (reader.Read())
+                    {
+                        if(reader.ElementType == typeof(Row) && reader.IsStartElement)
+                        {
+                            if (isFirstRow)
+                            {
+                                isFirstRow = false;
+                                reader.ReadFirstChild();
+                                continue;
+                            }
 
-                return result;
-            }).ToList();
-            validationStopwatch.Stop();
+                            var row = (Row)reader.LoadCurrentElement();
+                            var cellDictionary = row.Elements<Cell>().ToDictionary(c => GetColumnName(c.CellReference), c => c);
+
+                            var result = new FileDocModel
+                            {
+                                Prefix = cellDictionary.ContainsKey("A") ? GetCellValue(spreadsheetDocument, cellDictionary["A"], sharedStringTable) : string.Empty,
+                                Name = cellDictionary.ContainsKey("B") ? GetCellValue(spreadsheetDocument, cellDictionary["B"], sharedStringTable) : string.Empty,
+                                Surname = cellDictionary.ContainsKey("C") ? GetCellValue(spreadsheetDocument, cellDictionary["C"], sharedStringTable) : string.Empty,
+                                Department = cellDictionary.ContainsKey("D") ? GetCellValue(spreadsheetDocument, cellDictionary["D"], sharedStringTable) : string.Empty,
+                                Affiliation = cellDictionary.ContainsKey("E") ? GetCellValue(spreadsheetDocument, cellDictionary["E"], sharedStringTable) : string.Empty,
+                                PhoneNumber = cellDictionary.ContainsKey("F") ? GetCellValue(spreadsheetDocument, cellDictionary["F"], sharedStringTable) : string.Empty,
+                                Status = cellDictionary.ContainsKey("G") ? GetCellValue(spreadsheetDocument, cellDictionary["G"], sharedStringTable) : string.Empty,
+                            };
+
+                            if (!string.IsNullOrWhiteSpace(result.Prefix) && !regexPrefix.IsMatch(result.Prefix))
+                            {
+                                errors.Add(new ErrorValidateModel
+                                {
+                                    Row = row.RowIndex,
+                                    Message = "Prefix is must นาย|นาง|นางสาว|Mr\\.|Mrs\\.|Miss."
+                                });
+                            }
+                            if (string.IsNullOrWhiteSpace(result.Name))
+                            {
+                                errors.Add(new ErrorValidateModel
+                                {
+                                    Row = row.RowIndex,
+                                    Message = "Name is required"
+                                });
+                            }
+                            if (string.IsNullOrWhiteSpace(result.Surname))
+                            {
+                                errors.Add(new ErrorValidateModel
+                                {
+                                    Row = row.RowIndex,
+                                    Message = "Surname is required"
+                                });
+                            }
+                            if (string.IsNullOrWhiteSpace(result.Department))
+                            {
+                                errors.Add(new ErrorValidateModel
+                                {
+                                    Row = row.RowIndex,
+                                    Message = "Department is required"
+                                });
+                            }
+                            if (string.IsNullOrWhiteSpace(result.Affiliation))
+                            {
+                                errors.Add(new ErrorValidateModel
+                                {
+                                    Row = row.RowIndex,
+                                    Message = "Affiliation is required"
+                                });
+                            }
+                            if (string.IsNullOrWhiteSpace(result.PhoneNumber))
+                            {
+                                errors.Add(new ErrorValidateModel
+                                {
+                                    Row = row.RowIndex,
+                                    Message = "PhoneNumber is required"
+                                });
+                            }
+                            // Validate PhoneNumber using regex
+                            if (!string.IsNullOrWhiteSpace(result.PhoneNumber) && !regexMoblie.IsMatch(result.PhoneNumber))
+                            {
+                                errors.Add(new ErrorValidateModel
+                                {
+                                    Row = row.RowIndex,
+                                    Message = $"Invalid PhoneNumber: {result.PhoneNumber}"
+                                });
+                            }
+                            if (string.IsNullOrWhiteSpace(result.Status))
+                            {
+                                errors.Add(new ErrorValidateModel
+                                {
+                                    Row = row.RowIndex,
+                                    Message = "Status is required"
+                                });
+                            }
+
+                            data.Add(result);
+                        }
+                    }
+                    validationStopwatch.Stop();
+                }
+            }
 
             if (errors.Any())
             {
@@ -119,25 +182,28 @@ public class FileUploadService
 
             stopwatch.Stop();
             return (true, $"Read file in {readFileStopwatch.ElapsedMilliseconds} ms. - File validated in {validationStopwatch.ElapsedMilliseconds} ms and uploaded in {uploadStopwatch.ElapsedMilliseconds} ms.");
+
         }
-        catch (Exception ex)
-        {
-            stopwatch.Stop();
-            return (false, $"An error occurred: {ex.Message}. Total Time: {stopwatch.ElapsedMilliseconds} ms");
-        }
+
+
     }
 
-    private string GetCellValue(Dictionary<string, Cell> cellDictionary, string column, SharedStringTable sharedStringTable)
+    private string GetCellValue(SpreadsheetDocument document, Cell cell, SharedStringTable sharedStringTable)
     {
-        if (cellDictionary.ContainsKey(column))
+        if (cell == null || cell.CellValue == null)
         {
-            var cell = cellDictionary[column];
-            if (cell.DataType != null && cell.DataType == CellValues.SharedString)
-                return sharedStringTable?.ElementAt(int.Parse(cell.CellValue.Text))?.InnerText ?? string.Empty;
-
-            return cell.CellValue?.Text ?? string.Empty;
+            return string.Empty;
         }
-        return string.Empty;
+
+        var value = cell.CellValue.InnerText;
+
+        // If the value is a shared string, get the actual string from the SharedStringTable
+        if (cell.DataType != null && cell.DataType.Value == CellValues.SharedString)
+        {
+            return sharedStringTable != null ? sharedStringTable.ChildElements[int.Parse(value)].InnerText : string.Empty;
+        }
+
+        return value;
     }
 
 
@@ -174,29 +240,6 @@ public class FileUploadService
     }
 
 
-    private string GetCellValue(DocumentFormat.OpenXml.Spreadsheet.Cell cell, SharedStringTable sharedStringTable)
-    {
-        if (cell?.CellValue == null)
-            return string.Empty;
-
-        if (cell.DataType != null && cell.DataType == DocumentFormat.OpenXml.Spreadsheet.CellValues.SharedString)
-        {
-            // ดึงข้อมูลจาก SharedStringTable ตาม Index
-            if (int.TryParse(cell.CellValue.Text, out var sharedStringIndex) && sharedStringTable != null)
-            {
-                return sharedStringTable.ElementAt(sharedStringIndex)?.InnerText ?? string.Empty;
-            }
-        }
-
-        // Return ค่าปกติ (ไม่ใช่ Shared String)
-        return cell.CellValue.Text;
-    }
-
-
-    private bool IsValidPhoneNumber(string phoneNumber)
-    {
-        return !string.IsNullOrEmpty(phoneNumber) && System.Text.RegularExpressions.Regex.IsMatch(phoneNumber, @"^\d{10}$");
-    }
 
     private bool ValidateFileType(string fileName)
     {
